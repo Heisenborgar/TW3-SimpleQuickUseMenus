@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<UserConfig>
+  <Group id="QuickUseMenus" displayName="Mods.quickusemenus">
+    <VisibleVars>
+      <Var id="RefreshAfterUse" displayName="qm_refresh" displayType="OPTIONS">
+        <OptionsArray>
+          <Option id="0" displayName="qm_refresh_on"><Entry varId="RefreshAfterUse" value="0"/></Option>
+          <Option id="1" displayName="qm_refresh_off"><Entry varId="RefreshAfterUse" value="1"/></Option>
+        </OptionsArray>
+      </Var>
+    </VisibleVars>
+  </Group>
+</UserConfig>
