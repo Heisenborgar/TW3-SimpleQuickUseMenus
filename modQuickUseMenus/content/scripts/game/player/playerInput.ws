@@ -73,8 +73,8 @@ class CPlayerInput
 		theInput.RegisterListener( this, 'OnCommDrinkPotion4', 'DrinkPotion4' );
 		theInput.RegisterListener( this, 'OnCommDrinkpotionUpperHeld', 'DrinkPotionUpperHold' );
 		theInput.RegisterListener( this, 'OnCommDrinkpotionLowerHeld', 'DrinkPotionLowerHold' );
-		theInput.RegisterListener( this, 'OnQuickUsePotionsKB', 'OpenQuickPotions' ); // QuickUseMenus
-		theInput.RegisterListener( this, 'OnQuickUseOilsKB', 'OpenQuickOils' ); // QuickUseMenus
+		theInput.RegisterListener( this, 'OnQuickPotionsKey', 'OpenQuickPotions' );
+		theInput.RegisterListener( this, 'OnQuickOilsKey', 'OpenQuickOils' );
 		
 		
 		theInput.RegisterListener( this, 'OnDrinkPotionHold', 'DrinkPotion1Hold' );
@@ -1427,10 +1427,10 @@ class CPlayerInput
 	
 	event OnCommDrinkpotionUpperHeld( action : SInputAction )
 	{
-		// QuickUseMenus: disable the vanilla D-pad potion hold on gamepad
+		// the quick menus replace the d-pad potion hold
 		if( theInput.LastUsedGamepad() )
 			return false;
-		
+
 		if(!potionModeHold)
 			return false;
 			
@@ -1455,10 +1455,10 @@ class CPlayerInput
 	
 	event OnCommDrinkpotionLowerHeld( action : SInputAction )
 	{
-		// QuickUseMenus: disable the vanilla D-pad potion hold on gamepad
+		// the quick menus replace the d-pad potion hold
 		if( theInput.LastUsedGamepad() )
 			return false;
-		
+
 		if(!potionModeHold)
 			return false;
 			
@@ -1603,21 +1603,13 @@ class CPlayerInput
 		return false;
 	}
 	
-	// ===================== QuickUseMenus mod: start =====================
-	// oils == false: potions / decoctions / food popup. oils == true: oils popup.
-	private function OpenQuickUsePopup( oils : bool )
+	// opens the potion popup, or the oil popup for the sword in hand
+	private function OpenQuickMenu( oils : bool )
 	{
 		var witcher : W3PlayerWitcher;
 		
-		if( thePlayer.IsCiri() )
-		{
+		if( thePlayer.IsCiri() || theGame.IsDialogOrCutscenePlaying() || theGame.IsBlackscreenOrFading() )
 			return;
-		}
-		
-		if( theGame.IsDialogOrCutscenePlaying() || theGame.IsBlackscreenOrFading() )
-		{
-			return;
-		}
 		
 		if( !IsActionAllowed( EIAB_QuickSlots ) )
 		{
@@ -1626,40 +1618,27 @@ class CPlayerInput
 		}
 		
 		witcher = GetWitcherPlayer();
-		
 		if( witcher.GetRadialPopupShown() )
-		{
 			return;
-		}
 		
 		if( oils )
-		{
-			// oils for the sword that is currently drawn (silver if silver, otherwise steel)
 			witcher.OilSelectionPopup( thePlayer.GetCurrentMeleeWeaponType() != PW_Silver );
-		}
 		else
-		{
 			witcher.PotionSelectionPopup( EISPM_RadialMenuSlot1 );
-		}
 	}
 	
-	// Keyboard: bind the 'OpenQuickPotions' / 'OpenQuickOils' actions in the input config
-	event OnQuickUsePotionsKB( action : SInputAction )
+	// keyboard: needs 'OpenQuickPotions' / 'OpenQuickOils' bound in the input config
+	event OnQuickPotionsKey( action : SInputAction )
 	{
 		if( IsPressed( action ) )
-		{
-			OpenQuickUsePopup( false );
-		}
+			OpenQuickMenu( false );
 	}
 	
-	event OnQuickUseOilsKB( action : SInputAction )
+	event OnQuickOilsKey( action : SInputAction )
 	{
 		if( IsPressed( action ) )
-		{
-			OpenQuickUsePopup( true );
-		}
+			OpenQuickMenu( true );
 	}
-	// ===================== QuickUseMenus mod: end =====================
 	
 	event OnDrinkPotionHold( action : SInputAction )
 	{
@@ -1751,11 +1730,9 @@ class CPlayerInput
 		
 		if ( theInput.LastUsedGamepad() )
 		{
-			// QuickUseMenus: D-pad up opens the potions/decoctions/food popup instead of drinking
+			// d-pad up: potions, decoctions, food
 			if( IsPressed(action) )
-			{
-				OpenQuickUsePopup( false );
-			}
+				OpenQuickMenu( false );
 			return true;
 		}
 		else
@@ -1802,11 +1779,9 @@ class CPlayerInput
 		
 		if ( theInput.LastUsedGamepad() )
 		{
-			// QuickUseMenus: D-pad down opens the oils popup instead of drinking
+			// d-pad down: oils
 			if( IsPressed(action) )
-			{
-				OpenQuickUsePopup( true );
-			}
+				OpenQuickMenu( true );
 			return true;
 		}
 		else
@@ -3176,8 +3151,8 @@ class CPlayerInput
 		var itemId : SItemUniqueId;
 		var mouserControllerScheme : MouserControllerScheme = theInput.GetMouserControllerScheme();
 
-		// QuickUseMenus: RB must not throw bombs / use crossbow / lantern while the quick popup is open
-		if( GetWitcherPlayer().qum_popupOpen )
+		// RB shouldn't throw or aim anything while a quick menu is open
+		if( GetWitcherPlayer().qm_menuOpen )
 			return false;
 
 		if( GetIsAltSignCastingPressed() && mouserControllerScheme == MouserControllerScheme_Comfort )
@@ -3322,8 +3297,7 @@ class CPlayerInput
 
 		var itemId : SItemUniqueId;
 
-		// QuickUseMenus: same guard as OnCbtThrowItem
-		if( GetWitcherPlayer().qum_popupOpen )
+		if( GetWitcherPlayer().qm_menuOpen )
 			return false;
 
 		

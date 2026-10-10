@@ -1,28 +1,30 @@
-/***********************************************************************/
-/** 	QuickUseMenus - popup behaviour
-/** 	D-pad Up   : vanilla item popup (potions / decoctions / food), select = use it.
-/** 	D-pad Down : vanilla oil popup, select = vanilla behaviour (applies the oil).
-/** 	The popup slows the game down instead of pausing it, keeps the player on the
-/** 	radial-menu input context (like the vanilla wheel) and blocks RB item actions.
-/** 	Do not run together with the "Quickuse Consumable" mod.
-/***********************************************************************/
+// Quick use menus
+// D-pad up opens the vanilla item popup (potions, decoctions, food), D-pad down the oil popup.
 
 @addField( W3PlayerWitcher )
-private var qum_item : SItemUniqueId;
+private var qm_item : SItemUniqueId;
 
-// true while a quick popup opened by this mod is on screen (read by playerInput.ws)
 @addField( W3PlayerWitcher )
-public var qum_popupOpen : bool;
+public var qm_menuOpen : bool;
+
+@addField( W3PlayerWitcher )
+public var qm_popup : CR4ItemSelectionPopup;
 
 @addField( CR4ItemSelectionPopup )
-private var qum_ownsContext : bool;
+private var qm_ownsInput : bool;
+
+@addField( W3GuiPlayerInventoryComponent )
+public var qm_showEquipped : bool;
 
 
-// Flip to false to go back to "player stands still" if the radial-style input context ever misbehaves.
-@addMethod( CR4ItemSelectionPopup )
-private function qum_KeepMoving() : bool
+// The vanilla list leaves out equipped items. isEquipped only feeds that check, so our lists lie about it.
+@wrapMethod( W3GuiPlayerInventoryComponent )
+function isEquipped( item : SItemUniqueId ) : bool
 {
-	return true;
+	if ( qm_showEquipped )
+		return false;
+
+	return wrappedMethod( item );
 }
 
 
@@ -31,27 +33,31 @@ function OnConfigUI()
 {
 	var witcher : W3PlayerWitcher;
 
-	// vanilla setup (this issues the initial pause)
 	wrappedMethod();
 
-	if ( qum_IsQuickUsePopup() )
+	if ( qm_IsQuickMenu() )
 	{
-		// cancel the pause and slow the game down instead (same source/priority style as the radial wheel)
-		theGame.Unpause( "ItemSelectionPopup" );
-		theGame.SetTimeScale( 0.25f, 'QUM_SlowMo', theGame.GetTimescalePriority( ETS_RadialMenu ), false, true );
-
 		witcher = GetWitcherPlayer();
-		witcher.qum_popupOpen = true;
+		witcher.qm_menuOpen = true;
+		witcher.qm_popup = this;
 
-		// Mimic what the vanilla radial wheel sets up, unless the wheel itself is already open
-		if ( qum_KeepMoving() && !qum_RadialMenuIsOpen() )
+		// slow down instead of pausing
+		theGame.Unpause( "ItemSelectionPopup" );
+		theGame.SetTimeScale( 0.25f, 'QM_SlowMo', theGame.GetTimescalePriority( ETS_RadialMenu ), false, true );
+
+		// same input setup as the radial wheel so Geralt keeps moving (skipped if the wheel itself is open)
+		if ( !qm_WheelIsOpen() )
 		{
-			qum_ownsContext = true;
+			qm_ownsInput = true;
 			theGame.ForceUIAnalog( true );
-			theInput.StoreContext( 'RadialMenu' );
 			witcher.SetUITakeInput( true );
-			thePlayer.BlockAction( EIAB_Jump, 'QUM' );
+			thePlayer.BlockAction( EIAB_Jump, 'QM' );
 		}
+	}
+
+	if ( qm_IsPotionMenu() )
+	{
+		qm_ShowEquipped();
 	}
 }
 
@@ -61,18 +67,19 @@ function OnClosingPopup()
 {
 	var witcher : W3PlayerWitcher;
 
-	if ( qum_IsQuickUsePopup() )
+	if ( qm_IsQuickMenu() )
 	{
-		theGame.RemoveTimeScale( 'QUM_SlowMo' );
 		witcher = GetWitcherPlayer();
-		witcher.qum_popupOpen = false;
+		witcher.qm_menuOpen = false;
+		witcher.qm_popup = NULL;
 
-		if ( qum_ownsContext )
+		theGame.RemoveTimeScale( 'QM_SlowMo' );
+
+		if ( qm_ownsInput )
 		{
-			qum_ownsContext = false;
-			thePlayer.UnblockAction( EIAB_Jump, 'QUM' );
+			qm_ownsInput = false;
+			thePlayer.UnblockAction( EIAB_Jump, 'QM' );
 			witcher.SetUITakeInput( false );
-			theInput.RestoreContext( 'RadialMenu', true );
 			theGame.ForceUIAnalog( false );
 		}
 	}
@@ -81,120 +88,147 @@ function OnClosingPopup()
 }
 
 
+// Potions use the item on select. Oils keep the vanilla behaviour (the oil gets applied).
 @wrapMethod( CR4ItemSelectionPopup )
 function OnCallSelectItem( itemId : SItemUniqueId )
 {
-	var witcher : W3PlayerWitcher;
 	var inv : CInventoryComponent;
-	var canUse : bool;
 
-	// Only potion/food/decoction popups consume the item. Oil popups keep the vanilla
-	// behaviour so the oil is applied to the sword.
-	if ( !qum_IsConsumablePopup() )
+	if ( !qm_IsPotionMenu() )
 	{
-		wrappedMethod( itemId );
+		return wrappedMethod( itemId );
 	}
-	else
+
+	inv = thePlayer.GetInventory();
+
+	if ( !inv.IsIdValid( itemId ) || ( inv.IsItemSingletonItem( itemId ) && inv.SingletonItemGetAmmo( itemId ) == 0 ) )
 	{
-		witcher = GetWitcherPlayer();
-		inv = thePlayer.GetInventory();
-
-		canUse = true;
-
-		if ( !witcher )
-			canUse = false;
-
-		if ( !inv.IsIdValid( itemId ) )
-			canUse = false;
-
-		if ( inv.IsItemSingletonItem( itemId ) && inv.SingletonItemGetAmmo( itemId ) == 0 )
-			canUse = false;
-
-		if ( canUse )
-		{
-			ClosePopup();
-			witcher.qum_UseItem( itemId );
-		}
-		else
-		{
-			theSound.SoundEvent( "gui_global_denied" );
-		}
+		theSound.SoundEvent( "gui_global_denied" );
+		return true;
 	}
+
+	GetWitcherPlayer().qm_UseItem( itemId );
+	return true;
 }
 
 
 @addMethod( CR4ItemSelectionPopup )
-private function qum_RadialMenuIsOpen() : bool
+public function qm_RefreshList() : void
+{
+	UpdateData();
+}
+
+
+@addMethod( CR4ItemSelectionPopup )
+private function qm_ShowEquipped() : void
+{
+	m_potionInv.qm_showEquipped = true;
+	m_mutagenInv.qm_showEquipped = true;
+	m_edibleInv.qm_showEquipped = true;
+
+	// the list is already on screen, rebuild it
+	UpdateData();
+}
+
+
+@addMethod( CR4ItemSelectionPopup )
+private function qm_WheelIsOpen() : bool
 {
 	var hud : CR4ScriptedHud;
-	var module : CR4HudModuleRadialMenu;
+	var wheel : CR4HudModuleRadialMenu;
 
 	hud = (CR4ScriptedHud)theGame.GetHud();
-	if ( hud )
+	if ( !hud )
+		return false;
+
+	wheel = (CR4HudModuleRadialMenu)hud.GetHudModule( "RadialMenuModule" );
+	if ( !wheel )
+		return false;
+
+	return wheel.IsRadialMenuOpened();
+}
+
+
+// potion / decoction / food popup
+@addMethod( CR4ItemSelectionPopup )
+private function qm_IsPotionMenu() : bool
+{
+	var result : bool;
+
+	if ( !m_DataObject )
+		return false;
+
+	switch ( m_DataObject.selectionMode )
 	{
-		module = (CR4HudModuleRadialMenu)hud.GetHudModule( "RadialMenuModule" );
-		if ( module )
-		{
-			return module.IsRadialMenuOpened();
-		}
+		case EISPM_RadialMenuSlot1:
+		case EISPM_RadialMenuSlot2:
+		case EISPM_RadialMenuSlot3:
+		case EISPM_RadialMenuSlot4:
+			result = true;
+			break;
+		default:
+			result = false;
 	}
 
-	return false;
+	return result;
 }
 
 
-// Potions / foods / decoctions only (quick slots 1-4 popup modes)
+// potion or oil popup
 @addMethod( CR4ItemSelectionPopup )
-private function qum_IsConsumablePopup() : bool
+private function qm_IsQuickMenu() : bool
 {
 	if ( !m_DataObject )
 		return false;
 
-	return m_DataObject.selectionMode == EISPM_RadialMenuSlot1
-		|| m_DataObject.selectionMode == EISPM_RadialMenuSlot2
-		|| m_DataObject.selectionMode == EISPM_RadialMenuSlot3
-		|| m_DataObject.selectionMode == EISPM_RadialMenuSlot4;
-}
-
-
-// Any popup this mod opens: consumables and oils
-@addMethod( CR4ItemSelectionPopup )
-private function qum_IsQuickUsePopup() : bool
-{
-	if ( !m_DataObject )
-		return false;
-
-	return qum_IsConsumablePopup()
+	return qm_IsPotionMenu()
 		|| m_DataObject.selectionMode == EISPM_RadialMenuSteelOil
 		|| m_DataObject.selectionMode == EISPM_RadialMenuSilverOil;
 }
 
 
+// The popup unpauses when it closes, so the item is used from a short timer.
 @addMethod( W3PlayerWitcher )
-public function qum_UseItem( item : SItemUniqueId ) : void
+public function qm_UseItem( item : SItemUniqueId ) : void
 {
-	qum_item = item;
-	RemoveTimer( 'qum_UseItemTimer' );
-	AddTimer( 'qum_UseItemTimer', 0.035f, false );
+	qm_item = item;
+	RemoveTimer( 'qm_UseItemTimer' );
+	AddTimer( 'qm_UseItemTimer', 0.035f, false );
 }
 
 
 @addMethod( W3PlayerWitcher )
-timer function qum_UseItemTimer( dt : float, id : int )
+timer function qm_UseItemTimer( dt : float, id : int )
 {
-	if ( !inv.IsIdValid( qum_item ) )
-		return;
+	var slot : EEquipmentSlots;
 
-	if ( inv.ItemHasTag( qum_item, 'Edibles' ) )
+	if ( inv.IsIdValid( qm_item ) )
 	{
-		ConsumeItem( qum_item );
+		slot = qm_DrinkSlot( qm_item );
+
+		if ( inv.ItemHasTag( qm_item, 'Edibles' ) )
+			ConsumeItem( qm_item );
+		else if ( ToxicityLowEnoughToDrinkPotion( slot, qm_item ) )
+			DrinkPreparedPotion( slot, qm_item );
+		else
+			SendToxicityTooHighMessage();
 	}
-	else if ( ToxicityLowEnoughToDrinkPotion( EES_Potion1, qum_item ) )
-	{
-		DrinkPreparedPotion( EES_Potion1, qum_item );
-	}
-	else
-	{
-		SendToxicityTooHighMessage();
-	}
+
+	if ( qm_popup )
+		qm_popup.qm_RefreshList();
+}
+
+
+// quick slot the item sits in, or the first potion slot if it isn't equipped
+@addMethod( W3PlayerWitcher )
+private function qm_DrinkSlot( item : SItemUniqueId ) : EEquipmentSlots
+{
+	var slot : EEquipmentSlots;
+
+	slot = GetItemSlot( item );
+
+	if ( slot == EES_Potion1 || slot == EES_Potion2 || slot == EES_Potion3 || slot == EES_Potion4 )
+		return slot;
+
+	return EES_Potion1;
 }
